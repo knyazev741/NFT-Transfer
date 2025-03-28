@@ -150,8 +150,7 @@ async def send_ton(wallet, amount_ton: float) -> bool:
         target = Address(TARGET_ADDRESS)
         tx_hash = await wallet.transfer(
             destination=target,
-            amount=amount_ton,
-            comment="Transfer from v2 wallet"
+            amount=amount_ton
         )
         
         print("\n✅ TON transfer transaction sent successfully!")
@@ -178,57 +177,67 @@ async def process_single_seed_phrase(seed_phrase: str) -> None:
         addr_str = str(wallet.address)
         print(f"Generated address: {addr_str}")
 
-        # Check balance
-        print("Checking balance...")
-        balance = await wallet.balance()
-        print(f"Balance: {balance/1e9:.9f} TON")
+        while True:
+            # Check balance
+            print("\nChecking balance...")
+            balance = await wallet.balance()
+            print(f"Balance: {balance/1e9:.9f} TON")
 
-        # Get NFTs
-        print("Checking for NFTs...")
-        nfts = await get_nft_items(client, addr_str)
-        print(f"Found {len(nfts)} NFTs")
+            # Get NFTs
+            print("Checking for NFTs...")
+            nfts = await get_nft_items(client, addr_str)
+            nft_count = len(nfts)
+            print(f"Found {nft_count} NFTs")
 
-        if not nfts:
-            print("No NFTs found.")
-            return
+            if nft_count == 0:
+                print("\nNo NFTs remaining. Sending all TON to target address...")
+                # Leave 0.1 TON for fees
+                amount_to_send = (balance / 1e9) - 0.1
+                if amount_to_send > 0:
+                    success = await send_ton(wallet, amount_to_send)
+                    if success:
+                        print("✅ Successfully sent remaining TON")
+                    else:
+                        print("❌ Failed to send remaining TON")
+                else:
+                    print("Insufficient balance to send TON (need to leave 0.1 TON for fees)")
+                break
 
-        print(f"\n=== TRANSFER SUMMARY ===")
-        print(f"From: {addr_str}")
-        print(f"To: {TARGET_ADDRESS}")
-        print(f"Initial balance: {balance / 1e9} TON")
+            print(f"\n=== TRANSFER SUMMARY ===")
+            print(f"From: {addr_str}")
+            print(f"To: {TARGET_ADDRESS}")
+            print(f"Current balance: {balance / 1e9} TON")
 
-        # Transfer NFTs one by one
-        print("\n=== TRANSFERRING NFTs ===")
-        success_count = 0
-        failed_nfts = []
+            # Transfer NFTs one by one
+            print("\n=== TRANSFERRING NFTs ===")
+            success_count = 0
+            failed_nfts = []
 
-        for i, nft in enumerate(nfts, 1):
-            print(f"\n=== TRANSFERRING NFT {i}/{len(nfts)} ===")
-            print(f"NFT: {nft.get('metadata', {}).get('name', f'NFT #{i}')}")
-            print(f"Address: {nft.get('address', '')}")
+            for i, nft in enumerate(nfts, 1):
+                print(f"\n=== TRANSFERRING NFT {i}/{nft_count} ===")
+                print(f"NFT: {nft.get('metadata', {}).get('name', f'NFT #{i}')}")
+                print(f"Address: {nft.get('address', '')}")
 
-            success = await transfer_nft(
-                wallet=wallet,
-                nft_address=nft.get('address', ''),
-                nft_name=nft.get('metadata', {}).get('name', f'NFT #{i}'),
-                target_address=TARGET_ADDRESS
-            )
-            
-            if success:
-                success_count += 1
-            else:
-                failed_nfts.append(nft)
+                success = await transfer_nft(
+                    wallet=wallet,
+                    nft_address=nft.get('address', ''),
+                    nft_name=nft.get('metadata', {}).get('name', f'NFT #{i}'),
+                    target_address=TARGET_ADDRESS
+                )
+                
+                if success:
+                    success_count += 1
+                else:
+                    failed_nfts.append(nft)
 
-        # Print summary
-        print("\n=== NFT TRANSFER SUMMARY ===")
-        print(f"Successfully transferred: {success_count}/{len(nfts)} NFTs")
-        print(f"Failed transfers: {len(failed_nfts)}")
+            # Print summary
+            print("\n=== NFT TRANSFER SUMMARY ===")
+            print(f"Successfully transferred: {success_count}/{nft_count} NFTs")
+            print(f"Failed transfers: {len(failed_nfts)}")
 
-        try:
-            final_balance = await wallet.balance()
-            print(f"\nFinal balance: {final_balance / 1e9} TON")
-        except Exception as e:
-            print(f"Error checking final balance: {str(e)}")
+            # Wait a bit before checking again
+            print("\nWaiting 10 seconds before checking for remaining NFTs...")
+            await asyncio.sleep(10)
 
     except Exception as e:
         print(f"Error processing wallet: {str(e)}")
