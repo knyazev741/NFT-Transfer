@@ -3,6 +3,7 @@ import sys
 import requests
 import base64
 import os
+import re
 from dotenv import load_dotenv
 from tonsdk.crypto import mnemonic_to_wallet_key
 from tonsdk.contract.wallet import Wallets, WalletVersionEnum
@@ -297,139 +298,161 @@ def transfer_nft(wallet_config, seed_phrase, nft_address, nft_name=""):
         print(f"\n❌ Error sending NFT transfer: {str(e)}")
         return False
 
+def get_seed_phrases():
+    """Extract all seed phrases from .env file"""
+    seed_phrases = []
+    seed_pattern = re.compile(r'^SEED_\d+$')
+    
+    for key, value in os.environ.items():
+        if seed_pattern.match(key) and value.strip():
+            seed_phrases.append((key, value.strip()))
+    
+    # Sort by seed number
+    seed_phrases.sort(key=lambda x: int(x[0].split('_')[1]))
+    return seed_phrases
+
 def main():
     print("=== TON NFT SCANNER AND TRANSFER ===")
     
-    # Check if seed phrase is provided as command-line argument
-    if len(sys.argv) < 2:
-        print("Usage: python ton_transfer.py \"SEED PHRASE\"")
+    # Get all seed phrases from .env
+    seed_phrases = get_seed_phrases()
+    
+    if not seed_phrases:
+        print("No seed phrases found in .env file.")
+        print("Please add seed phrases with format SEED_1, SEED_2, etc.")
         return
     
-    # Get seed phrase from command-line argument and strip quotes if present
-    seed_phrase = sys.argv[1].strip('"\'')
+    print(f"Found {len(seed_phrases)} seed phrase(s) in .env file.")
     
-    # Find wallet with balance
-    wallet = find_wallet_with_balance(seed_phrase)
-    
-    if wallet:
-        # Process until wallet is empty of NFTs and TON
-        while True:
-            # Get NFTs from the found wallet address
-            wallet_address = wallet['address']
-            print(f"\n=== RETRIEVING NFTs FROM {wallet_address} ===")
-            nft_items = get_nfts_from_address(wallet_address)
-            
-            # Update wallet balance
-            current_balance = check_balance(wallet_address)
-            wallet['balance'] = current_balance
-            
-            if not nft_items:
-                print(f"No NFTs found on address {wallet_address}")
+    # Process each seed phrase sequentially
+    for seed_idx, (seed_key, seed_phrase) in enumerate(seed_phrases):
+        print(f"\n====== PROCESSING {seed_key} ({seed_idx+1}/{len(seed_phrases)}) ======")
+        
+        # Find wallet with balance
+        wallet = find_wallet_with_balance(seed_phrase)
+        
+        if wallet:
+            # Process until wallet is empty of NFTs and TON
+            while True:
+                # Get NFTs from the found wallet address
+                wallet_address = wallet['address']
+                print(f"\n=== RETRIEVING NFTs FROM {wallet_address} ===")
+                nft_items = get_nfts_from_address(wallet_address)
                 
-                # Send remaining TON balance if sufficient
-                if current_balance > to_nano(0.05):  # Ensure there's enough for gas
-                    print(f"\n=== TRANSFERRING REMAINING TON ===")
-                    print(f"Current balance: {current_balance/1e9:.9f} TON")
-                    print(f"Target: {TARGET_ADDRESS}")
-                    
-                    # Reserve a small amount for gas
-                    transfer_amount = current_balance - to_nano(0.01)
-                    success = send_ton(wallet, seed_phrase, transfer_amount/1e9)
-                    
-                    if success:
-                        print(f"\n✅ TON transfer completed successfully!")
-                    else:
-                        print(f"\n❌ TON transfer failed.")
-                else:
-                    print(f"Insufficient TON balance for transfer: {current_balance/1e9:.9f} TON")
-                
-                # Check if wallet is now empty
-                remaining_balance = check_balance(wallet_address)
-                if remaining_balance < to_nano(0.01) and not nft_items:
-                    print(f"\n✅ Wallet emptying completed!")
-                    print(f"Final balance: {remaining_balance/1e9:.9f} TON")
-                    print(f"All NFTs and TON have been transferred to {TARGET_ADDRESS}")
-                    break
-                elif remaining_balance < to_nano(0.05):
-                    print(f"\n✅ Wallet has minimal balance left: {remaining_balance/1e9:.9f} TON")
-                    print(f"All NFTs have been transferred to {TARGET_ADDRESS}")
-                    break
-                else:
-                    # Wait and retry if there's still a significant balance
-                    print(f"Waiting for transactions to complete...")
-                    time.sleep(5)
-                    continue
-            
-            print(f"Found {len(nft_items)} NFTs on {wallet_address}")
-            
-            # Display all NFTs
-            print("\n=== NFT LIST ===")
-            for idx, nft in enumerate(nft_items):
-                nft_address = nft.get("address", "")
-                nft_name = nft.get("metadata", {}).get("name", f"NFT #{idx+1}")
-                collection_name = nft.get("collection", {}).get("name", "Unknown Collection")
-                
-                print(f"NFT {idx+1}/{len(nft_items)}: {nft_name} ({collection_name})")
-                print(f"  Address: {nft_address}")
-                
-                # If available, print more details
-                if "metadata" in nft:
-                    metadata = nft["metadata"]
-                    if "description" in metadata:
-                        print(f"  Description: {metadata['description']}")
-                    if "attributes" in metadata:
-                        print(f"  Attributes: {metadata['attributes']}")
-                    if "image" in metadata:
-                        print(f"  Image URL: {metadata['image']}")
-                
-                print("")  # Empty line for better readability
-            
-            # Transfer each NFT one by one
-            success_count = 0
-            for idx, nft in enumerate(nft_items):
-                nft_address = nft.get("address", "")
-                nft_name = nft.get("metadata", {}).get("name", f"NFT #{idx+1}")
-                collection_name = nft.get("collection", {}).get("name", "Unknown Collection")
-                full_name = f"{nft_name} ({collection_name})"
-                
-                print(f"\n=== TRANSFERRING NFT {idx+1}/{len(nft_items)} ===")
-                print(f"Selected NFT: {full_name}")
-                print(f"Address: {nft_address}")
-                print(f"Target: {TARGET_ADDRESS}")
-                
-                # Transfer the NFT
-                success = transfer_nft(wallet, seed_phrase, nft_address, full_name)
-                if success:
-                    print(f"\n✅ NFT transfer initiated successfully!")
-                    success_count += 1
-                else:
-                    print(f"\n❌ NFT transfer failed.")
-                    
-                # Wait a bit between transfers to avoid rate limits and allow blockchain to process
-                time.sleep(2)
-                
-                # Update wallet details after each transfer
+                # Update wallet balance
                 current_balance = check_balance(wallet_address)
                 wallet['balance'] = current_balance
                 
-                # If balance is getting low, stop and wait for next round
-                if current_balance < to_nano(0.05):
-                    print(f"\n⚠️ Balance too low ({current_balance/1e9:.9f} TON), stopping transfers")
-                    break
-            
-            print(f"\n=== TRANSFER SUMMARY ===")
-            print(f"Successfully initiated transfer of {success_count}/{len(nft_items)} NFTs")
-            print(f"From: {wallet_address} ({wallet['desc']})")
-            print(f"To: {TARGET_ADDRESS}")
-            print(f"Remaining balance: {current_balance/1e9:.9f} TON")
-            
-            # If we've transferred all NFTs in this batch, wait a bit to let blockchain settle
-            if success_count == len(nft_items):
-                print(f"Waiting for transactions to complete...")
-                time.sleep(10)
-            
-    else:
-        print("\n❌ No wallet with balance found. Cannot retrieve NFTs.")
+                if not nft_items:
+                    print(f"No NFTs found on address {wallet_address}")
+                    
+                    # Send remaining TON balance if sufficient
+                    if current_balance > to_nano(0.05):  # Ensure there's enough for gas
+                        print(f"\n=== TRANSFERRING REMAINING TON ===")
+                        print(f"Current balance: {current_balance/1e9:.9f} TON")
+                        print(f"Target: {TARGET_ADDRESS}")
+                        
+                        # Reserve a small amount for gas
+                        transfer_amount = current_balance - to_nano(0.01)
+                        success = send_ton(wallet, seed_phrase, transfer_amount/1e9)
+                        
+                        if success:
+                            print(f"\n✅ TON transfer completed successfully!")
+                        else:
+                            print(f"\n❌ TON transfer failed.")
+                    else:
+                        print(f"Insufficient TON balance for transfer: {current_balance/1e9:.9f} TON")
+                    
+                    # Check if wallet is now empty
+                    remaining_balance = check_balance(wallet_address)
+                    if remaining_balance < to_nano(0.01) and not nft_items:
+                        print(f"\n✅ Wallet emptying completed!")
+                        print(f"Final balance: {remaining_balance/1e9:.9f} TON")
+                        print(f"All NFTs and TON have been transferred to {TARGET_ADDRESS}")
+                        break
+                    elif remaining_balance < to_nano(0.05):
+                        print(f"\n✅ Wallet has minimal balance left: {remaining_balance/1e9:.9f} TON")
+                        print(f"All NFTs have been transferred to {TARGET_ADDRESS}")
+                        break
+                    else:
+                        # Wait and retry if there's still a significant balance
+                        print(f"Waiting for transactions to complete...")
+                        time.sleep(5)
+                        continue
+                
+                print(f"Found {len(nft_items)} NFTs on {wallet_address}")
+                
+                # Display all NFTs
+                print("\n=== NFT LIST ===")
+                for idx, nft in enumerate(nft_items):
+                    nft_address = nft.get("address", "")
+                    nft_name = nft.get("metadata", {}).get("name", f"NFT #{idx+1}")
+                    collection_name = nft.get("collection", {}).get("name", "Unknown Collection")
+                    
+                    print(f"NFT {idx+1}/{len(nft_items)}: {nft_name} ({collection_name})")
+                    print(f"  Address: {nft_address}")
+                    
+                    # If available, print more details
+                    if "metadata" in nft:
+                        metadata = nft["metadata"]
+                        if "description" in metadata:
+                            print(f"  Description: {metadata['description']}")
+                        if "attributes" in metadata:
+                            print(f"  Attributes: {metadata['attributes']}")
+                        if "image" in metadata:
+                            print(f"  Image URL: {metadata['image']}")
+                
+                    print("")  # Empty line for better readability
+                
+                # Transfer each NFT one by one
+                success_count = 0
+                for idx, nft in enumerate(nft_items):
+                    nft_address = nft.get("address", "")
+                    nft_name = nft.get("metadata", {}).get("name", f"NFT #{idx+1}")
+                    collection_name = nft.get("collection", {}).get("name", "Unknown Collection")
+                    full_name = f"{nft_name} ({collection_name})"
+                    
+                    print(f"\n=== TRANSFERRING NFT {idx+1}/{len(nft_items)} ===")
+                    print(f"Selected NFT: {full_name}")
+                    print(f"Address: {nft_address}")
+                    print(f"Target: {TARGET_ADDRESS}")
+                    
+                    # Transfer the NFT
+                    success = transfer_nft(wallet, seed_phrase, nft_address, full_name)
+                    if success:
+                        print(f"\n✅ NFT transfer initiated successfully!")
+                        success_count += 1
+                    else:
+                        print(f"\n❌ NFT transfer failed.")
+                        
+                    # Wait a bit between transfers to avoid rate limits and allow blockchain to process
+                    time.sleep(2)
+                    
+                    # Update wallet details after each transfer
+                    current_balance = check_balance(wallet_address)
+                    wallet['balance'] = current_balance
+                    
+                    # If balance is getting low, stop and wait for next round
+                    if current_balance < to_nano(0.05):
+                        print(f"\n⚠️ Balance too low ({current_balance/1e9:.9f} TON), stopping transfers")
+                        break
+                
+                print(f"\n=== TRANSFER SUMMARY ===")
+                print(f"Successfully initiated transfer of {success_count}/{len(nft_items)} NFTs")
+                print(f"From: {wallet_address} ({wallet['desc']})")
+                print(f"To: {TARGET_ADDRESS}")
+                print(f"Remaining balance: {current_balance/1e9:.9f} TON")
+                
+                # If we've transferred all NFTs in this batch, wait a bit to let blockchain settle
+                if success_count == len(nft_items):
+                    print(f"Waiting for transactions to complete...")
+                    time.sleep(10)
+                
+        else:
+            print(f"\n❌ No wallet with balance found for seed phrase {seed_key}. Skipping.")
+    
+    print("\n===== ALL SEED PHRASES PROCESSED =====")
+    print(f"Processed {len(seed_phrases)} seed phrases.")
 
 def send_ton(wallet_config, seed_phrase, amount_ton):
     """Send TON to the target address"""
@@ -514,6 +537,133 @@ def send_ton(wallet_config, seed_phrase, amount_ton):
         print(f"\n❌ Error sending TON transfer: {str(e)}")
         return False
 
+def process_single_seed_phrase(seed_phrase):
+    """Process a single seed phrase to empty wallet"""
+    print("=== TON NFT SCANNER AND TRANSFER ===")
+    print("Using single seed phrase mode")
+    
+    # Find wallet with balance
+    wallet = find_wallet_with_balance(seed_phrase)
+    
+    if wallet:
+        # Process until wallet is empty of NFTs and TON
+        while True:
+            # Get NFTs from the found wallet address
+            wallet_address = wallet['address']
+            print(f"\n=== RETRIEVING NFTs FROM {wallet_address} ===")
+            nft_items = get_nfts_from_address(wallet_address)
+            
+            # Update wallet balance
+            current_balance = check_balance(wallet_address)
+            wallet['balance'] = current_balance
+            
+            if not nft_items:
+                print(f"No NFTs found on address {wallet_address}")
+                
+                # Send remaining TON balance if sufficient
+                if current_balance > to_nano(0.05):  # Ensure there's enough for gas
+                    print(f"\n=== TRANSFERRING REMAINING TON ===")
+                    print(f"Current balance: {current_balance/1e9:.9f} TON")
+                    print(f"Target: {TARGET_ADDRESS}")
+                    
+                    # Reserve a small amount for gas
+                    transfer_amount = current_balance - to_nano(0.01)
+                    success = send_ton(wallet, seed_phrase, transfer_amount/1e9)
+                    
+                    if success:
+                        print(f"\n✅ TON transfer completed successfully!")
+                    else:
+                        print(f"\n❌ TON transfer failed.")
+                else:
+                    print(f"Insufficient TON balance for transfer: {current_balance/1e9:.9f} TON")
+                
+                # Check if wallet is now empty
+                remaining_balance = check_balance(wallet_address)
+                if remaining_balance < to_nano(0.01) and not nft_items:
+                    print(f"\n✅ Wallet emptying completed!")
+                    print(f"Final balance: {remaining_balance/1e9:.9f} TON")
+                    print(f"All NFTs and TON have been transferred to {TARGET_ADDRESS}")
+                    break
+                elif remaining_balance < to_nano(0.05):
+                    print(f"\n✅ Wallet has minimal balance left: {remaining_balance/1e9:.9f} TON")
+                    print(f"All NFTs have been transferred to {TARGET_ADDRESS}")
+                    break
+                else:
+                    # Wait and retry if there's still a significant balance
+                    print(f"Waiting for transactions to complete...")
+                    time.sleep(5)
+                    continue
+            
+            print(f"Found {len(nft_items)} NFTs on {wallet_address}")
+            
+            # Display all NFTs
+            print("\n=== NFT LIST ===")
+            for idx, nft in enumerate(nft_items):
+                nft_address = nft.get("address", "")
+                nft_name = nft.get("metadata", {}).get("name", f"NFT #{idx+1}")
+                collection_name = nft.get("collection", {}).get("name", "Unknown Collection")
+                
+                print(f"NFT {idx+1}/{len(nft_items)}: {nft_name} ({collection_name})")
+                print(f"  Address: {nft_address}")
+                
+                # If available, print more details
+                if "metadata" in nft:
+                    metadata = nft["metadata"]
+                    if "description" in metadata:
+                        print(f"  Description: {metadata['description']}")
+                    if "attributes" in metadata:
+                        print(f"  Attributes: {metadata['attributes']}")
+                    if "image" in metadata:
+                        print(f"  Image URL: {metadata['image']}")
+            
+                print("")  # Empty line for better readability
+            
+            # Transfer each NFT one by one
+            success_count = 0
+            for idx, nft in enumerate(nft_items):
+                nft_address = nft.get("address", "")
+                nft_name = nft.get("metadata", {}).get("name", f"NFT #{idx+1}")
+                collection_name = nft.get("collection", {}).get("name", "Unknown Collection")
+                full_name = f"{nft_name} ({collection_name})"
+                
+                print(f"\n=== TRANSFERRING NFT {idx+1}/{len(nft_items)} ===")
+                print(f"Selected NFT: {full_name}")
+                print(f"Address: {nft_address}")
+                print(f"Target: {TARGET_ADDRESS}")
+                
+                # Transfer the NFT
+                success = transfer_nft(wallet, seed_phrase, nft_address, full_name)
+                if success:
+                    print(f"\n✅ NFT transfer initiated successfully!")
+                    success_count += 1
+                else:
+                    print(f"\n❌ NFT transfer failed.")
+                    
+                # Wait a bit between transfers to avoid rate limits and allow blockchain to process
+                time.sleep(2)
+                
+                # Update wallet details after each transfer
+                current_balance = check_balance(wallet_address)
+                wallet['balance'] = current_balance
+                
+                # If balance is getting low, stop and wait for next round
+                if current_balance < to_nano(0.05):
+                    print(f"\n⚠️ Balance too low ({current_balance/1e9:.9f} TON), stopping transfers")
+                    break
+            
+            print(f"\n=== TRANSFER SUMMARY ===")
+            print(f"Successfully initiated transfer of {success_count}/{len(nft_items)} NFTs")
+            print(f"From: {wallet_address} ({wallet['desc']})")
+            print(f"To: {TARGET_ADDRESS}")
+            print(f"Remaining balance: {current_balance/1e9:.9f} TON")
+            
+            # If we've transferred all NFTs in this batch, wait a bit to let blockchain settle
+            if success_count == len(nft_items):
+                print(f"Waiting for transactions to complete...")
+                time.sleep(10)
+    else:
+        print("\n❌ No wallet with balance found for this seed phrase.")
+
 if __name__ == "__main__":
     # Install required packages
     import subprocess
@@ -527,5 +677,11 @@ if __name__ == "__main__":
             print(f"Installing required package: {package}")
             subprocess.check_call([sys.executable, "-m", "pip", "install", package])
     
-    # Run the main function
-    main() 
+    # Check if a seed phrase is provided as command-line argument
+    if len(sys.argv) > 1:
+        # Use command-line argument for a single seed phrase
+        seed_phrase = sys.argv[1].strip('"\'')
+        process_single_seed_phrase(seed_phrase)
+    else:
+        # Use seed phrases from .env file
+        main() 
