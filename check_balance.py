@@ -6,8 +6,8 @@ from tonsdk.contract.wallet import Wallets, WalletVersionEnum
 from tonsdk.utils import Address
 
 # Constants
-API_KEY = "82c720448bf7ae5de2339efffe7779f81b6b1ee91f22bb65176efa8dfecdd7a8"
-SEED_PHRASE = "check bean high swamp myth bag genre brush timber peasant stone live saddle famous wedding repair hammer dad rely sudden differ little win bike"
+API_KEY = ""
+SEED_PHRASE = ""
 
 def check_balance(address):
     """Check balance of an address using TonCenter API"""
