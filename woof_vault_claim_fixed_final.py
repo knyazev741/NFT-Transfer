@@ -66,6 +66,8 @@ def get_lock_period(nft_name: str) -> str:
     name_lower = nft_name.lower()
     if "2 month" in name_lower or "2-month" in name_lower:
         return "2-month"
+    elif "3 month" in name_lower or "3-month" in name_lower:
+        return "3-month"
     elif "6 month" in name_lower or "6-month" in name_lower:
         return "6-month"
     else:
@@ -310,7 +312,7 @@ async def claim_simple_version(wallet, nft_address: str, amount_ton: float = 0.1
         print(f"❌ Error in simple claim: {e}")
         return False
 
-async def mass_claim_all_vaults(wallet, vaults_list: List[Dict], delay_seconds: int = 30) -> Dict:
+async def mass_claim_all_vaults(wallet, vaults_list: List[Dict], delay_seconds: int = 10) -> Dict:
     """Mass claim from all vault NFTs with delay between transactions"""
     results = {
         "total": len(vaults_list),
@@ -439,33 +441,33 @@ async def main():
         print(f"✅ Using wallet: {wallet_address}")
         print(f"✅ Found {len(nfts)} NFTs")
         
-        # Filter for Woof Vaults with 2-month lock
-        woof_vaults_2m = []
+        # Filter for Woof Vaults with 3-month lock
+        woof_vaults_3m = []
         for nft in nfts:
             name = nft.get("metadata", {}).get("name", "")
             if "$woof vault" in name.lower():
                 period = get_lock_period(name)
-                if period == "2-month":
+                if period == "3-month":
                     nft_address = nft.get("address", "")
                     
-                    woof_vaults_2m.append({
+                    woof_vaults_3m.append({
                         "name": name,
                         "period": period,
                         "nft_address": nft_address
                     })
         
-        if not woof_vaults_2m:
-            print("❌ No 2-month Woof Vaults found")
+        if not woof_vaults_3m:
+            print("❌ No 3-month Woof Vaults found")
             return
         
-        print(f"\n=== FOUND {len(woof_vaults_2m)} 2-MONTH WOOF VAULTS ===")
-        for i, vault in enumerate(woof_vaults_2m[:3], 1):  # Show first 3
+        print(f"\n=== FOUND {len(woof_vaults_3m)} 3-MONTH WOOF VAULTS ===")
+        for i, vault in enumerate(woof_vaults_3m[:3], 1):  # Show first 3
             print(f"{i}. {vault['name']}")
             print(f"   NFT Address: {vault['nft_address']}")
         
         # Test with first vault only
-        first_vault = woof_vaults_2m[0]
-        print(f"\n=== TESTING WITH FIRST 2-MONTH VAULT (FIXED) ===")
+        first_vault = woof_vaults_3m[0]
+        print(f"\n=== TESTING WITH FIRST 3-MONTH VAULT (FIXED) ===")
         print(f"Vault name: {first_vault['name']}")
         print(f"NFT address: {first_vault['nft_address']}")
         
@@ -473,7 +475,7 @@ async def main():
         print(f"\n⚠️  ВЫБЕРИТЕ ДЕЙСТВИЕ:")
         print(f"1. ТЕСТОВЫЙ CLAIM (исходный метод на 1 vault)")
         print(f"2. ТЕСТОВЫЙ CLAIM (простой метод на 1 vault)")
-        print(f"3. 🚀 МАССОВЫЙ CLAIM ВСЕХ {len(woof_vaults_2m)} VAULT'ОВ (простой метод)")
+        print(f"3. 🚀 МАССОВЫЙ CLAIM ВСЕХ {len(woof_vaults_3m)} VAULT'ОВ (простой метод)")
         print(f"4. ОТМЕНА")
         
         choice = input("Выберите действие (1/2/3/4): ").strip()
@@ -498,15 +500,15 @@ async def main():
                 
         elif choice == "3":
             print(f"\n💰 МАССОВЫЙ CLAIM - ВНИМАНИЕ!")
-            print(f"📊 Количество vault'ов: {len(woof_vaults_2m)}")
-            print(f"💸 Примерная стоимость: {len(woof_vaults_2m) * 0.1} TON")
-            print(f"⏱️  Примерное время: {len(woof_vaults_2m) * 30 / 60:.1f} минут")
+            print(f"📊 Количество vault'ов: {len(woof_vaults_3m)}")
+            print(f"💸 Примерная стоимость: {len(woof_vaults_3m) * 0.1} TON")
+            print(f"⏱️  Примерное время: {len(woof_vaults_3m) * 10 / 60:.1f} минут")
             
             confirm = input(f"\n⚠️ Вы уверены? Введите 'CONFIRM' для продолжения: ").strip()
             
             if confirm == "CONFIRM":
                 print(f"\n🚀 STARTING MASS CLAIM...")
-                results = await mass_claim_all_vaults(wallet, woof_vaults_2m, delay_seconds=30)
+                results = await mass_claim_all_vaults(wallet, woof_vaults_3m, delay_seconds=10)
                 
                 print(f"\n🏁 МАССОВЫЙ CLAIM ЗАВЕРШЕН!")
                 print(f"✅ Успешно: {results['successful']}")
